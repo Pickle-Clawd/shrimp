@@ -3,16 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard — shrimp</title>
+  <title>Admin — shrimp</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div class="dashboard">
     <header class="dash-header">
-      <h1>🦐 shrimp dashboard</h1>
+      <h1>🦐 shrimp admin</h1>
       <div class="dash-actions">
         <a href="/" style="color: var(--text-light);">Home</a>
-        <a href="/login" style="color: var(--text-light);">Admin</a>
+        <a href="/dashboard" style="color: var(--text-light);">Public Dashboard</a>
+        <button class="btn btn-secondary btn-small" onclick="logout()">Logout</button>
       </div>
     </header>
 
@@ -21,17 +22,21 @@
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-value" id="total-links">0</div>
-          <div class="stat-label">Your Links</div>
+          <div class="stat-label">Total Links</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="total-clicks">0</div>
           <div class="stat-label">Total Clicks</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-value" id="total-reported" style="color: var(--coral);">0</div>
+          <div class="stat-label">Reported</div>
+        </div>
       </div>
 
       <!-- Create Link -->
       <div class="create-form">
-        <h2>Create Short Link</h2>
+        <h2>Create Short Link (Admin)</h2>
         <form id="create-form">
           <div class="form-row">
             <div class="form-group">
@@ -42,25 +47,28 @@
               <label for="slug">Custom slug (optional)</label>
               <input type="text" id="slug" placeholder="my-link">
             </div>
-            <div class="form-group">
-              <label for="expires_in">Expires in (hours, 0=never)</label>
-              <input type="number" id="expires_in" placeholder="0" min="0" value="0">
-            </div>
             <button type="submit" class="btn btn-primary" style="margin-bottom: 0; white-space: nowrap;">Shorten</button>
           </div>
         </form>
-        <p class="error-msg" id="create-error"></p>
-        <p class="success-msg" id="create-success" style="display:none; color: #4caf50; margin-top: 0.75rem;"></p>
+      </div>
+
+      <!-- Filter -->
+      <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+        <button class="btn btn-secondary btn-small filter-btn active" data-filter="all" onclick="setFilter('all')">All</button>
+        <button class="btn btn-secondary btn-small filter-btn" data-filter="reported" onclick="setFilter('reported')">Reported</button>
+        <button class="btn btn-secondary btn-small filter-btn" data-filter="disabled" onclick="setFilter('disabled')">Disabled</button>
+        <button class="btn btn-secondary btn-small filter-btn" data-filter="active" onclick="setFilter('active')">Active</button>
       </div>
 
       <!-- Links Table -->
       <div class="links-section">
-        <h2>Your Links</h2>
+        <h2>All Links</h2>
         <table class="links-table">
           <thead>
             <tr>
               <th>Slug</th>
               <th>Destination</th>
+              <th>Creator</th>
               <th>Clicks</th>
               <th>Status</th>
               <th>Created</th>
@@ -68,7 +76,7 @@
             </tr>
           </thead>
           <tbody id="links-body">
-            <tr><td colspan="6" style="text-align:center; color: var(--text-light);">Loading...</td></tr>
+            <tr><td colspan="7" style="text-align:center; color: var(--text-light);">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -81,6 +89,15 @@
       <button class="modal-close" onclick="closeModal('analytics-modal')">&times;</button>
       <h2>Link Analytics</h2>
       <div id="analytics-content">Loading...</div>
+    </div>
+  </div>
+
+  <!-- QR Modal -->
+  <div class="modal-overlay" id="qr-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('qr-modal')">&times;</button>
+      <h2>QR Code</h2>
+      <div id="qr-content" class="qr-container">Loading...</div>
     </div>
   </div>
 
@@ -105,26 +122,42 @@
   </div>
 
   <script>
+    const token = sessionStorage.getItem('adminToken');
+    if (!token) {
+      window.location.href = '/login';
+    }
+
+    let allLinks = [];
+    let currentFilter = 'all';
+
     function api(path, options = {}) {
       return fetch(path, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
+          'X-Admin-Token': token,
           ...(options.headers || {}),
         },
       });
     }
 
-    async function loadLinks() {
-      const res = await api('/api/my/links');
-      const links = await res.json();
-      document.getElementById('total-links').textContent = links.length;
-      const totalClicks = links.reduce((sum, l) => sum + (l.click_count || 0), 0);
-      document.getElementById('total-clicks').textContent = totalClicks;
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+      });
+      renderLinks();
+    }
+
+    function renderLinks() {
+      let links = allLinks;
+      if (currentFilter === 'reported') links = allLinks.filter(l => l.reported);
+      else if (currentFilter === 'disabled') links = allLinks.filter(l => l.disabled);
+      else if (currentFilter === 'active') links = allLinks.filter(l => !l.disabled && !l.reported);
 
       const tbody = document.getElementById('links-body');
       if (links.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-light);">No links yet. Create one above!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: var(--text-light);">No links match this filter.</td></tr>';
         return;
       }
 
@@ -144,25 +177,45 @@
             status = 'Expired';
             statusClass = 'status-disabled';
           } else {
-            status += ' (expires ' + exp.toLocaleDateString() + ')';
+            status += ' (exp ' + exp.toLocaleDateString() + ')';
           }
         }
+        const disableLabel = link.disabled ? 'Enable' : 'Disable';
+        const creatorLabel = link.creator_id ? (link.creator_id === 'admin' ? 'admin' : link.creator_id.substring(0, 8) + '...') : '-';
         return `
         <tr style="${link.disabled ? 'opacity:0.6;' : link.reported ? 'background:rgba(255,107,107,0.08);' : ''}">
-          <td class="slug"><a href="/${escapeHtml(link.slug)}" target="_blank">/${escapeHtml(link.slug)}</a></td>
+          <td class="slug">/${escapeHtml(link.slug)}</td>
           <td class="url" title="${escapeHtml(link.url)}">${escapeHtml(link.url)}</td>
+          <td style="font-size:0.8rem;color:var(--text-light);font-family:monospace;" title="${escapeHtml(link.creator_id || '')}">${creatorLabel}</td>
           <td>${link.click_count || 0}</td>
           <td><span class="${statusClass}">${status}</span></td>
           <td>${new Date(link.created_at + 'Z').toLocaleDateString()}</td>
           <td>
             <div class="actions-cell">
-              <button class="btn btn-secondary btn-small" onclick="showAnalytics(${link.id})">Analytics</button>
-              <button class="btn btn-secondary btn-small" onclick="editLink(${link.id}, '${escapeHtml(link.url)}', '${escapeHtml(link.slug)}')">Edit</button>
-              <button class="btn btn-danger btn-small" onclick="deleteLink(${link.id})">Delete</button>
+              <button class="btn btn-secondary btn-small" onclick="showAnalytics(${link.id})">📊</button>
+              <button class="btn btn-secondary btn-small" onclick="showQR(${link.id})">📱</button>
+              <button class="btn btn-secondary btn-small" onclick="editLink(${link.id}, '${escapeHtml(link.url)}', '${escapeHtml(link.slug)}')">✏️</button>
+              <button class="btn ${link.disabled ? 'btn-primary' : 'btn-secondary'} btn-small" onclick="toggleDisable(${link.id})">${disableLabel}</button>
+              <button class="btn btn-danger btn-small" onclick="deleteLink(${link.id})">🗑️</button>
             </div>
           </td>
         </tr>`;
       }).join('');
+    }
+
+    async function loadLinks() {
+      const res = await api('/api/links');
+      if (res.status === 401) {
+        sessionStorage.removeItem('adminToken');
+        window.location.href = '/login';
+        return;
+      }
+      allLinks = await res.json();
+      document.getElementById('total-links').textContent = allLinks.length;
+      const totalClicks = allLinks.reduce((sum, l) => sum + (l.click_count || 0), 0);
+      document.getElementById('total-clicks').textContent = totalClicks;
+      document.getElementById('total-reported').textContent = allLinks.filter(l => l.reported).length;
+      renderLinks();
     }
 
     function escapeHtml(text) {
@@ -171,35 +224,22 @@
       return div.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
     }
 
-    // Create link via public /api/shorten
+    // Create link
     document.getElementById('create-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const errorEl = document.getElementById('create-error');
-      const successEl = document.getElementById('create-success');
-      errorEl.style.display = 'none';
-      successEl.style.display = 'none';
-
       const url = document.getElementById('url').value;
       const slug = document.getElementById('slug').value;
-      const expires_in = document.getElementById('expires_in').value;
-
-      const res = await api('/api/shorten', {
+      const res = await api('/api/links', {
         method: 'POST',
-        body: JSON.stringify({ url, slug: slug || undefined, expires_in: Number(expires_in) || 0 }),
+        body: JSON.stringify({ url, slug: slug || undefined }),
       });
-
       if (res.ok) {
-        const data = await res.json();
         document.getElementById('url').value = '';
         document.getElementById('slug').value = '';
-        document.getElementById('expires_in').value = '0';
-        successEl.textContent = `Created: ${window.location.origin}/${data.slug}`;
-        successEl.style.display = 'block';
         loadLinks();
       } else {
         const data = await res.json();
-        errorEl.textContent = data.error || 'Failed to create link';
-        errorEl.style.display = 'block';
+        alert(data.error || 'Failed to create link');
       }
     });
 
@@ -207,11 +247,7 @@
     async function showAnalytics(id) {
       document.getElementById('analytics-modal').classList.add('active');
       document.getElementById('analytics-content').innerHTML = 'Loading...';
-      const res = await api(`/api/my/links/${id}/analytics`);
-      if (!res.ok) {
-        document.getElementById('analytics-content').innerHTML = '<p style="color:var(--coral);">Could not load analytics.</p>';
-        return;
-      }
+      const res = await api(`/api/links/${id}/analytics`);
       const data = await res.json();
 
       let html = `<p style="margin-bottom:1rem;"><strong>Total clicks:</strong> <span style="color:var(--shrimp);font-size:1.5rem;">${data.clickCount}</span></p>`;
@@ -247,6 +283,18 @@
       document.getElementById('analytics-content').innerHTML = html;
     }
 
+    // QR Code
+    async function showQR(id) {
+      document.getElementById('qr-modal').classList.add('active');
+      document.getElementById('qr-content').innerHTML = 'Generating...';
+      const res = await api(`/api/links/${id}/qr`);
+      const data = await res.json();
+      document.getElementById('qr-content').innerHTML = `
+        <img src="${data.qr}" alt="QR Code" style="max-width:300px;">
+        <p style="margin-top:1rem;color:var(--text-light);">${escapeHtml(data.url)}</p>
+      `;
+    }
+
     // Edit
     function editLink(id, url, slug) {
       document.getElementById('edit-id').value = id;
@@ -260,7 +308,7 @@
       const id = document.getElementById('edit-id').value;
       const url = document.getElementById('edit-url').value;
       const slug = document.getElementById('edit-slug').value;
-      const res = await api(`/api/my/links/${id}`, {
+      const res = await api(`/api/links/${id}`, {
         method: 'PUT',
         body: JSON.stringify({ url, slug }),
       });
@@ -273,10 +321,16 @@
       }
     });
 
+    // Toggle disable
+    async function toggleDisable(id) {
+      await api(`/api/links/${id}/disable`, { method: 'PATCH' });
+      loadLinks();
+    }
+
     // Delete
     async function deleteLink(id) {
       if (!confirm('Delete this link?')) return;
-      await api(`/api/my/links/${id}`, { method: 'DELETE' });
+      await api(`/api/links/${id}`, { method: 'DELETE' });
       loadLinks();
     }
 
@@ -291,8 +345,20 @@
       });
     });
 
+    function logout() {
+      sessionStorage.removeItem('adminToken');
+      window.location.href = '/login';
+    }
+
     // Init
     loadLinks();
   </script>
+
+  <style>
+    .filter-btn.active {
+      background: var(--shrimp);
+      color: var(--bg);
+    }
+  </style>
 </body>
 </html>

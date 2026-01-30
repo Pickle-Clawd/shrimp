@@ -16,17 +16,17 @@ const reportLimiter = createRateLimiter({ windowMs: 60000, max: 5, message: 'Too
 // PUBLIC ENDPOINTS (no auth required)
 // ──────────────────────────────────────
 
-// Public link creation
+// Public link creation (tags with creator_id from cookie)
 router.post('/shorten', shortenLimiter, validateUrl, (req, res) => {
   const { url, slug, expires_in } = req.body;
   const finalSlug = slug || nanoid(7);
+  const creatorId = req.creatorId || null;
 
   const existing = db.prepare('SELECT id FROM links WHERE slug = ?').get(finalSlug);
   if (existing) {
     return res.status(409).json({ error: 'Slug already in use' });
   }
 
-  // Calculate expiration if provided (hours from now)
   let expiresAt = null;
   if (expires_in && Number(expires_in) > 0) {
     const hours = Number(expires_in);
@@ -35,7 +35,7 @@ router.post('/shorten', shortenLimiter, validateUrl, (req, res) => {
   }
 
   try {
-    const result = db.prepare('INSERT INTO links (slug, url, expires_at) VALUES (?, ?, ?)').run(finalSlug, url, expiresAt);
+    const result = db.prepare('INSERT INTO links (slug, url, expires_at, creator_id) VALUES (?, ?, ?, ?)').run(finalSlug, url, expiresAt, creatorId);
     const link = db.prepare('SELECT id, slug, url, created_at, expires_at FROM links WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(link);
   } catch (err) {
@@ -63,6 +63,100 @@ router.post('/auth/verify', (req, res) => {
     return res.json({ success: true, token: adminPassword });
   }
   return res.status(401).json({ error: 'Invalid password' });
+});
+
+// ──────────────────────────────────────
+// PUBLIC USER-SCOPED ENDPOINTS (cookie-based identity)
+// ──────────────────────────────────────
+
+// List links created by the current cookie holder
+router.get('/my/links', (req, res) => {
+  const creatorId = req.creatorId;
+  if (!creatorId) {
+    return res.json([]);
+  }
+  const links = db.prepare(`
+    SELECT l.*, COUNT(c.id) as click_count
+    FROM links l
+    LEFT JOIN clicks c ON c.link_id = l.id
+    WHERE l.creator_id = ?
+    GROUP BY l.id
+    ORDER BY l.created_at DESC
+  `).all(creatorId);
+  res.json(links);
+});
+
+// Update a link owned by the current user
+router.put('/my/links/:id', (req, res) => {
+  const { url, slug } = req.body;
+  const { id } = req.params;
+  const creatorId = req.creatorId;
+
+  const link = db.prepare('SELECT * FROM links WHERE id = ? AND creator_id = ?').get(id, creatorId);
+  if (!link) {
+    return res.status(404).json({ error: 'Link not found' });
+  }
+
+  const newUrl = url || link.url;
+  const newSlug = slug || link.slug;
+
+  if (newSlug !== link.slug) {
+    const existing = db.prepare('SELECT id FROM links WHERE slug = ? AND id != ?').get(newSlug, id);
+    if (existing) {
+      return res.status(409).json({ error: 'Slug already in use' });
+    }
+  }
+
+  db.prepare("UPDATE links SET url = ?, slug = ?, updated_at = datetime('now') WHERE id = ?").run(newUrl, newSlug, id);
+  const updated = db.prepare('SELECT * FROM links WHERE id = ?').get(id);
+  res.json(updated);
+});
+
+// Delete a link owned by the current user
+router.delete('/my/links/:id', (req, res) => {
+  const { id } = req.params;
+  const creatorId = req.creatorId;
+
+  const link = db.prepare('SELECT * FROM links WHERE id = ? AND creator_id = ?').get(id, creatorId);
+  if (!link) {
+    return res.status(404).json({ error: 'Link not found' });
+  }
+
+  db.prepare('DELETE FROM clicks WHERE link_id = ?').run(id);
+  db.prepare('DELETE FROM links WHERE id = ?').run(id);
+  res.json({ success: true });
+});
+
+// Get analytics for a link owned by the current user
+router.get('/my/links/:id/analytics', (req, res) => {
+  const { id } = req.params;
+  const creatorId = req.creatorId;
+
+  const link = db.prepare('SELECT * FROM links WHERE id = ? AND creator_id = ?').get(id, creatorId);
+  if (!link) {
+    return res.status(404).json({ error: 'Link not found' });
+  }
+
+  const clickCount = db.prepare('SELECT COUNT(*) as count FROM clicks WHERE link_id = ?').get(id).count;
+  const recentClicks = db.prepare(`
+    SELECT clicked_at, referrer, user_agent, country, city
+    FROM clicks WHERE link_id = ?
+    ORDER BY clicked_at DESC LIMIT 50
+  `).all(id);
+
+  const referrers = db.prepare(`
+    SELECT referrer, COUNT(*) as count
+    FROM clicks WHERE link_id = ? AND referrer IS NOT NULL AND referrer != ''
+    GROUP BY referrer ORDER BY count DESC LIMIT 10
+  `).all(id);
+
+  const countries = db.prepare(`
+    SELECT country, COUNT(*) as count
+    FROM clicks WHERE link_id = ? AND country IS NOT NULL AND country != ''
+    GROUP BY country ORDER BY count DESC LIMIT 10
+  `).all(id);
+
+  res.json({ link, clickCount, recentClicks, referrers, countries });
 });
 
 // ──────────────────────────────────────
@@ -104,7 +198,7 @@ router.post('/links', authMiddleware, (req, res) => {
   }
 
   try {
-    const result = db.prepare('INSERT INTO links (slug, url, expires_at) VALUES (?, ?, ?)').run(finalSlug, url, expiresAt);
+    const result = db.prepare('INSERT INTO links (slug, url, expires_at, creator_id) VALUES (?, ?, ?, ?)').run(finalSlug, url, expiresAt, 'admin');
     const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(link);
   } catch (err) {

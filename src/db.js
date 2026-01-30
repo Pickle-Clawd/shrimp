@@ -17,7 +17,8 @@ db.exec(`
     updated_at TEXT DEFAULT (datetime('now')),
     expires_at TEXT,
     disabled INTEGER DEFAULT 0,
-    reported INTEGER DEFAULT 0
+    reported INTEGER DEFAULT 0,
+    creator_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS clicks (
@@ -46,6 +47,9 @@ if (!columns.includes('disabled')) {
 }
 if (!columns.includes('reported')) {
   db.exec("ALTER TABLE links ADD COLUMN reported INTEGER DEFAULT 0");
+}
+if (!columns.includes('creator_id')) {
+  db.exec("ALTER TABLE links ADD COLUMN creator_id TEXT");
 }
 
 // Cleanup expired links on startup

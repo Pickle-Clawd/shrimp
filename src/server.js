@@ -3,16 +3,17 @@ const path = require('path');
 const db = require('./db');
 const apiRoutes = require('./routes/api');
 const redirectRoute = require('./routes/redirect');
-const authMiddleware = require('./middleware/auth');
+const identityMiddleware = require('./middleware/identity');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(identityMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API routes (protected)
+// API routes
 app.use('/api', apiRoutes);
 
 // Landing page
@@ -20,9 +21,14 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Dashboard
+// Public dashboard (cookie-scoped, no auth)
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+// Admin dashboard (client-side auth check via sessionStorage token)
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // Login page
