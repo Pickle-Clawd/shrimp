@@ -14,7 +14,10 @@ db.exec(`
     slug TEXT UNIQUE NOT NULL,
     url TEXT NOT NULL,
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    updated_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT,
+    disabled INTEGER DEFAULT 0,
+    reported INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS clicks (
@@ -32,5 +35,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_links_slug ON links(slug);
   CREATE INDEX IF NOT EXISTS idx_clicks_link_id ON clicks(link_id);
 `);
+
+// Migrations: add columns if they don't exist (for existing databases)
+const columns = db.prepare("PRAGMA table_info(links)").all().map(c => c.name);
+if (!columns.includes('expires_at')) {
+  db.exec("ALTER TABLE links ADD COLUMN expires_at TEXT");
+}
+if (!columns.includes('disabled')) {
+  db.exec("ALTER TABLE links ADD COLUMN disabled INTEGER DEFAULT 0");
+}
+if (!columns.includes('reported')) {
+  db.exec("ALTER TABLE links ADD COLUMN reported INTEGER DEFAULT 0");
+}
+
+// Cleanup expired links on startup
+db.prepare("DELETE FROM links WHERE expires_at IS NOT NULL AND expires_at < datetime('now')").run();
+
+// Periodic cleanup every 10 minutes
+setInterval(() => {
+  try {
+    db.prepare("DELETE FROM links WHERE expires_at IS NOT NULL AND expires_at < datetime('now')").run();
+  } catch (e) {
+    // DB may be closed during shutdown
+  }
+}, 10 * 60 * 1000);
 
 module.exports = db;

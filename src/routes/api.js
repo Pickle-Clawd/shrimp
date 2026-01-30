@@ -3,8 +3,57 @@ const { nanoid } = require('nanoid');
 const QRCode = require('qrcode');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
+const createRateLimiter = require('../middleware/rateLimit');
+const validateUrl = require('../middleware/validateUrl');
 
 const router = express.Router();
+
+// Rate limiters
+const shortenLimiter = createRateLimiter({ windowMs: 60000, max: 10, message: 'Rate limit exceeded. Try again in a minute.' });
+const reportLimiter = createRateLimiter({ windowMs: 60000, max: 5, message: 'Too many reports. Try again later.' });
+
+// ──────────────────────────────────────
+// PUBLIC ENDPOINTS (no auth required)
+// ──────────────────────────────────────
+
+// Public link creation
+router.post('/shorten', shortenLimiter, validateUrl, (req, res) => {
+  const { url, slug, expires_in } = req.body;
+  const finalSlug = slug || nanoid(7);
+
+  const existing = db.prepare('SELECT id FROM links WHERE slug = ?').get(finalSlug);
+  if (existing) {
+    return res.status(409).json({ error: 'Slug already in use' });
+  }
+
+  // Calculate expiration if provided (hours from now)
+  let expiresAt = null;
+  if (expires_in && Number(expires_in) > 0) {
+    const hours = Number(expires_in);
+    const expDate = new Date(Date.now() + hours * 60 * 60 * 1000);
+    expiresAt = expDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+  }
+
+  try {
+    const result = db.prepare('INSERT INTO links (slug, url, expires_at) VALUES (?, ?, ?)').run(finalSlug, url, expiresAt);
+    const link = db.prepare('SELECT id, slug, url, created_at, expires_at FROM links WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(link);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create link' });
+  }
+});
+
+// Report a link for abuse
+router.post('/report/:slug', reportLimiter, (req, res) => {
+  const { slug } = req.params;
+  const link = db.prepare('SELECT id FROM links WHERE slug = ?').get(slug);
+  if (!link) {
+    return res.status(404).json({ error: 'Link not found' });
+  }
+
+  db.prepare("UPDATE links SET reported = 1, updated_at = datetime('now') WHERE id = ?").run(link.id);
+  res.json({ success: true, message: 'Link has been reported for review.' });
+});
 
 // Verify auth
 router.post('/auth/verify', (req, res) => {
@@ -15,6 +64,10 @@ router.post('/auth/verify', (req, res) => {
   }
   return res.status(401).json({ error: 'Invalid password' });
 });
+
+// ──────────────────────────────────────
+// ADMIN ENDPOINTS (auth required)
+// ──────────────────────────────────────
 
 // List all links
 router.get('/links', authMiddleware, (req, res) => {
@@ -28,9 +81,9 @@ router.get('/links', authMiddleware, (req, res) => {
   res.json(links);
 });
 
-// Create a new link
+// Create a new link (admin — no rate limit, no URL validation)
 router.post('/links', authMiddleware, (req, res) => {
-  const { url, slug } = req.body;
+  const { url, slug, expires_in } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -38,19 +91,45 @@ router.post('/links', authMiddleware, (req, res) => {
 
   const finalSlug = slug || nanoid(7);
 
-  // Check if slug already exists
   const existing = db.prepare('SELECT id FROM links WHERE slug = ?').get(finalSlug);
   if (existing) {
     return res.status(409).json({ error: 'Slug already in use' });
   }
 
+  let expiresAt = null;
+  if (expires_in && Number(expires_in) > 0) {
+    const hours = Number(expires_in);
+    const expDate = new Date(Date.now() + hours * 60 * 60 * 1000);
+    expiresAt = expDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+  }
+
   try {
-    const result = db.prepare('INSERT INTO links (slug, url) VALUES (?, ?)').run(finalSlug, url);
+    const result = db.prepare('INSERT INTO links (slug, url, expires_at) VALUES (?, ?, ?)').run(finalSlug, url, expiresAt);
     const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(link);
   } catch (err) {
     res.status(500).json({ error: 'Failed to create link' });
   }
+});
+
+// Toggle disabled status on a link
+router.patch('/links/:id/disable', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const link = db.prepare('SELECT * FROM links WHERE id = ?').get(id);
+  if (!link) {
+    return res.status(404).json({ error: 'Link not found' });
+  }
+
+  const newDisabled = link.disabled ? 0 : 1;
+  db.prepare("UPDATE links SET disabled = ?, updated_at = datetime('now') WHERE id = ?").run(newDisabled, id);
+
+  // If re-enabling, also clear reported flag
+  if (!newDisabled) {
+    db.prepare("UPDATE links SET reported = 0 WHERE id = ?").run(id);
+  }
+
+  const updated = db.prepare('SELECT * FROM links WHERE id = ?').get(id);
+  res.json(updated);
 });
 
 // Update a link
@@ -66,7 +145,6 @@ router.put('/links/:id', authMiddleware, (req, res) => {
   const newUrl = url || link.url;
   const newSlug = slug || link.slug;
 
-  // Check slug uniqueness if changed
   if (newSlug !== link.slug) {
     const existing = db.prepare('SELECT id FROM links WHERE slug = ? AND id != ?').get(newSlug, id);
     if (existing) {

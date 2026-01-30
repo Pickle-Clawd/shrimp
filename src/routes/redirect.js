@@ -11,6 +11,19 @@ router.get('/:slug', (req, res) => {
     return res.status(404).send('Link not found');
   }
 
+  // Check if link is disabled
+  if (link.disabled) {
+    return res.status(404).send('Link not found');
+  }
+
+  // Check if link is expired
+  if (link.expires_at) {
+    const expiresAt = new Date(link.expires_at + 'Z');
+    if (expiresAt <= new Date()) {
+      return res.status(404).send('Link has expired');
+    }
+  }
+
   // Record click
   const referrer = req.get('referer') || req.get('referrer') || '';
   const userAgent = req.get('user-agent') || '';

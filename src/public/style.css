@@ -252,6 +252,19 @@ a:hover {
   color: white;
 }
 
+.status-active {
+  color: #4caf50;
+  font-weight: 500;
+}
+.status-reported {
+  color: var(--shrimp);
+  font-weight: 600;
+}
+.status-disabled {
+  color: var(--coral);
+  font-weight: 600;
+}
+
 .btn-small {
   padding: 0.4rem 0.8rem;
   font-size: 0.85rem;

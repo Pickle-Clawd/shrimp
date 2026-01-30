@@ -56,12 +56,13 @@
               <th>Slug</th>
               <th>Destination</th>
               <th>Clicks</th>
+              <th>Status</th>
               <th>Created</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="links-body">
-            <tr><td colspan="5" style="text-align:center; color: var(--text-light);">Loading...</td></tr>
+            <tr><td colspan="6" style="text-align:center; color: var(--text-light);">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -137,26 +138,48 @@
 
       const tbody = document.getElementById('links-body');
       if (links.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-light);">No links yet. Create one above!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-light);">No links yet. Create one above!</td></tr>';
         return;
       }
 
-      tbody.innerHTML = links.map(link => `
-        <tr>
-          <td class="slug">/${link.slug}</td>
+      tbody.innerHTML = links.map(link => {
+        let status = 'Active';
+        let statusClass = 'status-active';
+        if (link.disabled) {
+          status = 'Disabled';
+          statusClass = 'status-disabled';
+        } else if (link.reported) {
+          status = 'Reported';
+          statusClass = 'status-reported';
+        }
+        if (link.expires_at) {
+          const exp = new Date(link.expires_at + 'Z');
+          if (exp <= new Date()) {
+            status = 'Expired';
+            statusClass = 'status-disabled';
+          } else {
+            status += ' (expires ' + exp.toLocaleDateString() + ')';
+          }
+        }
+        const disableLabel = link.disabled ? 'Enable' : 'Disable';
+        return `
+        <tr style="${link.disabled ? 'opacity:0.6;' : link.reported ? 'background:rgba(255,107,107,0.08);' : ''}">
+          <td class="slug">/${escapeHtml(link.slug)}</td>
           <td class="url" title="${escapeHtml(link.url)}">${escapeHtml(link.url)}</td>
           <td>${link.click_count || 0}</td>
+          <td><span class="${statusClass}">${status}</span></td>
           <td>${new Date(link.created_at + 'Z').toLocaleDateString()}</td>
           <td>
             <div class="actions-cell">
               <button class="btn btn-secondary btn-small" onclick="showAnalytics(${link.id})">📊</button>
               <button class="btn btn-secondary btn-small" onclick="showQR(${link.id})">📱</button>
               <button class="btn btn-secondary btn-small" onclick="editLink(${link.id}, '${escapeHtml(link.url)}', '${escapeHtml(link.slug)}')">✏️</button>
+              <button class="btn ${link.disabled ? 'btn-primary' : 'btn-secondary'} btn-small" onclick="toggleDisable(${link.id})">${disableLabel}</button>
               <button class="btn btn-danger btn-small" onclick="deleteLink(${link.id})">🗑️</button>
             </div>
           </td>
-        </tr>
-      `).join('');
+        </tr>`;
+      }).join('');
     }
 
     function escapeHtml(text) {
@@ -261,6 +284,12 @@
         alert(data.error || 'Failed to update link');
       }
     });
+
+    // Toggle disable
+    async function toggleDisable(id) {
+      await api(`/api/links/${id}/disable`, { method: 'PATCH' });
+      loadLinks();
+    }
 
     // Delete
     async function deleteLink(id) {
