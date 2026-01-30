@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — shrimp</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="dashboard">
+    <header class="dash-header">
+      <h1>🦐 shrimp dashboard</h1>
+      <div class="dash-actions">
+        <a href="/" style="color: var(--text-light);">Home</a>
+        <button class="btn btn-secondary btn-small" onclick="logout()">Logout</button>
+      </div>
+    </header>
+
+    <div class="dash-content">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="total-links">0</div>
+          <div class="stat-label">Total Links</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="total-clicks">0</div>
+          <div class="stat-label">Total Clicks</div>
+        </div>
+      </div>
+
+      <!-- Create Link -->
+      <div class="create-form">
+        <h2>Create Short Link</h2>
+        <form id="create-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="url">Destination URL</label>
+              <input type="url" id="url" placeholder="https://example.com/long-url" required>
+            </div>
+            <div class="form-group">
+              <label for="slug">Custom slug (optional)</label>
+              <input type="text" id="slug" placeholder="my-link">
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-bottom: 0; white-space: nowrap;">Shorten</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Links Table -->
+      <div class="links-section">
+        <h2>Your Links</h2>
+        <table class="links-table">
+          <thead>
+            <tr>
+              <th>Slug</th>
+              <th>Destination</th>
+              <th>Clicks</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="links-body">
+            <tr><td colspan="5" style="text-align:center; color: var(--text-light);">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analytics Modal -->
+  <div class="modal-overlay" id="analytics-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('analytics-modal')">&times;</button>
+      <h2>📊 Link Analytics</h2>
+      <div id="analytics-content">Loading...</div>
+    </div>
+  </div>
+
+  <!-- QR Modal -->
+  <div class="modal-overlay" id="qr-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('qr-modal')">&times;</button>
+      <h2>📱 QR Code</h2>
+      <div id="qr-content" class="qr-container">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('edit-modal')">&times;</button>
+      <h2>Edit Link</h2>
+      <form id="edit-form">
+        <input type="hidden" id="edit-id">
+        <div class="form-group">
+          <label for="edit-url">Destination URL</label>
+          <input type="url" id="edit-url" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-slug">Slug</label>
+          <input type="text" id="edit-slug" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const token = sessionStorage.getItem('adminToken');
+    if (!token) {
+      window.location.href = '/login';
+    }
+
+    function api(path, options = {}) {
+      return fetch(path, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Token': token,
+          ...(options.headers || {}),
+        },
+      });
+    }
+
+    async function loadLinks() {
+      const res = await api('/api/links');
+      if (res.status === 401) {
+        sessionStorage.removeItem('adminToken');
+        window.location.href = '/login';
+        return;
+      }
+      const links = await res.json();
+      document.getElementById('total-links').textContent = links.length;
+      const totalClicks = links.reduce((sum, l) => sum + (l.click_count || 0), 0);
+      document.getElementById('total-clicks').textContent = totalClicks;
+
+      const tbody = document.getElementById('links-body');
+      if (links.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-light);">No links yet. Create one above!</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = links.map(link => `
+        <tr>
+          <td class="slug">/${link.slug}</td>
+          <td class="url" title="${escapeHtml(link.url)}">${escapeHtml(link.url)}</td>
+          <td>${link.click_count || 0}</td>
+          <td>${new Date(link.created_at + 'Z').toLocaleDateString()}</td>
+          <td>
+            <div class="actions-cell">
+              <button class="btn btn-secondary btn-small" onclick="showAnalytics(${link.id})">📊</button>
+              <button class="btn btn-secondary btn-small" onclick="showQR(${link.id})">📱</button>
+              <button class="btn btn-secondary btn-small" onclick="editLink(${link.id}, '${escapeHtml(link.url)}', '${escapeHtml(link.slug)}')">✏️</button>
+              <button class="btn btn-danger btn-small" onclick="deleteLink(${link.id})">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+
+    // Create link
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = document.getElementById('url').value;
+      const slug = document.getElementById('slug').value;
+      const res = await api('/api/links', {
+        method: 'POST',
+        body: JSON.stringify({ url, slug: slug || undefined }),
+      });
+      if (res.ok) {
+        document.getElementById('url').value = '';
+        document.getElementById('slug').value = '';
+        loadLinks();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to create link');
+      }
+    });
+
+    // Analytics
+    async function showAnalytics(id) {
+      document.getElementById('analytics-modal').classList.add('active');
+      document.getElementById('analytics-content').innerHTML = 'Loading...';
+      const res = await api(`/api/links/${id}/analytics`);
+      const data = await res.json();
+
+      let html = `<p style="margin-bottom:1rem;"><strong>Total clicks:</strong> <span style="color:var(--shrimp);font-size:1.5rem;">${data.clickCount}</span></p>`;
+
+      if (data.referrers.length > 0) {
+        html += '<div class="analytics-section"><h3>Top Referrers</h3><ul class="analytics-list">';
+        data.referrers.forEach(r => {
+          html += `<li><span>${escapeHtml(r.referrer)}</span><span class="count">${r.count}</span></li>`;
+        });
+        html += '</ul></div>';
+      }
+
+      if (data.countries.length > 0) {
+        html += '<div class="analytics-section"><h3>Countries</h3><ul class="analytics-list">';
+        data.countries.forEach(c => {
+          html += `<li><span>${escapeHtml(c.country)}</span><span class="count">${c.count}</span></li>`;
+        });
+        html += '</ul></div>';
+      }
+
+      if (data.recentClicks.length > 0) {
+        html += '<div class="analytics-section"><h3>Recent Clicks</h3><table class="click-log" style="width:100%">';
+        data.recentClicks.slice(0, 10).forEach(c => {
+          html += `<tr><td>${new Date(c.clicked_at + 'Z').toLocaleString()}</td><td>${escapeHtml(c.referrer || 'Direct')}</td><td>${escapeHtml(c.country || '-')}</td></tr>`;
+        });
+        html += '</table></div>';
+      }
+
+      if (data.clickCount === 0) {
+        html += '<p style="color:var(--text-light);margin-top:1rem;">No clicks yet.</p>';
+      }
+
+      document.getElementById('analytics-content').innerHTML = html;
+    }
+
+    // QR Code
+    async function showQR(id) {
+      document.getElementById('qr-modal').classList.add('active');
+      document.getElementById('qr-content').innerHTML = 'Generating...';
+      const res = await api(`/api/links/${id}/qr`);
+      const data = await res.json();
+      document.getElementById('qr-content').innerHTML = `
+        <img src="${data.qr}" alt="QR Code" style="max-width:300px;">
+        <p style="margin-top:1rem;color:var(--text-light);">${escapeHtml(data.url)}</p>
+      `;
+    }
+
+    // Edit
+    function editLink(id, url, slug) {
+      document.getElementById('edit-id').value = id;
+      document.getElementById('edit-url').value = url;
+      document.getElementById('edit-slug').value = slug;
+      document.getElementById('edit-modal').classList.add('active');
+    }
+
+    document.getElementById('edit-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('edit-id').value;
+      const url = document.getElementById('edit-url').value;
+      const slug = document.getElementById('edit-slug').value;
+      const res = await api(`/api/links/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ url, slug }),
+      });
+      if (res.ok) {
+        closeModal('edit-modal');
+        loadLinks();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to update link');
+      }
+    });
+
+    // Delete
+    async function deleteLink(id) {
+      if (!confirm('Delete this link?')) return;
+      await api(`/api/links/${id}`, { method: 'DELETE' });
+      loadLinks();
+    }
+
+    // Modal controls
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.classList.remove('active');
+      });
+    });
+
+    function logout() {
+      sessionStorage.removeItem('adminToken');
+      window.location.href = '/login';
+    }
+
+    // Init
+    loadLinks();
+  </script>
+</body>
+</html>

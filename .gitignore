@@ -1,0 +1,5 @@
+node_modules/
+shrimp.db
+shrimp.db-wal
+shrimp.db-shm
+.env
