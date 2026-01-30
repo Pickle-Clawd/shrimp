@@ -1,13 +1,15 @@
-FROM node:22-slim
-
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+FROM node:22-bookworm AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
-ENV npm_config_build_from_source=true
-RUN npm ci --production
+RUN npm ci --omit=dev
 
+FROM node:22-bookworm-slim
+
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
 ENV NODE_ENV=production
