@@ -8,6 +8,7 @@ COPY package*.json ./
 RUN npm ci --production
 
 COPY . .
+RUN chmod +x start.sh
 
 ENV NODE_ENV=production
 ENV PORT=8080
@@ -15,4 +16,4 @@ ENV DATABASE_PATH=/data/shrimp.db
 
 EXPOSE 8080
 
-CMD ["node", "src/server.js"]
+CMD ["/bin/sh", "/app/start.sh"]
