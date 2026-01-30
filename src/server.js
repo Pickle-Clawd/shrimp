@@ -33,7 +33,7 @@ app.get('/login', (req, res) => {
 // Redirect route — must be last
 app.use('/', redirectRoute);
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Shrimp is running on port ${PORT}`);
 });
 
