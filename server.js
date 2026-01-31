@@ -54,16 +54,18 @@ app.post('/api/stats/activity', (req, res) => {
   if (!status || !['active', 'idle'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be "active" or "idle".' });
   }
+  const ts = timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19);
   const stmt = db.prepare('INSERT INTO activity (timestamp, status, details) VALUES (?, ?, ?)');
-  const result = stmt.run(timestamp || null, status, details || null);
+  const result = stmt.run(ts, status, details || null);
   res.json({ id: result.lastInsertRowid });
 });
 
 // POST /api/stats/messages
 app.post('/api/stats/messages', (req, res) => {
   const { count, session_id, direction, timestamp } = req.body;
+  const ts = timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19);
   const stmt = db.prepare('INSERT INTO messages (timestamp, count, session_id, direction) VALUES (?, ?, ?, ?)');
-  const result = stmt.run(timestamp || null, count || 1, session_id || null, direction || null);
+  const result = stmt.run(ts, count || 1, session_id || null, direction || null);
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -73,8 +75,9 @@ app.post('/api/stats/tools', (req, res) => {
   if (!tool_name) {
     return res.status(400).json({ error: 'tool_name is required.' });
   }
+  const ts = timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19);
   const stmt = db.prepare('INSERT INTO tools (timestamp, tool_name, count) VALUES (?, ?, ?)');
-  const result = stmt.run(timestamp || null, tool_name, count || 1);
+  const result = stmt.run(ts, tool_name, count || 1);
   res.json({ id: result.lastInsertRowid });
 });
 
