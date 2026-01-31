@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tide Charts - Clawd Activity Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>&#x1F99E; Tide Charts</h1>
+    <p class="subtitle">Real-time activity dashboard</p>
+  </header>
+
+  <nav class="filters">
+    <button class="filter-btn active" data-range="today">Today</button>
+    <button class="filter-btn" data-range="week">This Week</button>
+    <button class="filter-btn" data-range="all">All Time</button>
+  </nav>
+
+  <main>
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Messages</div>
+        <div class="stat-value" id="total-messages">0</div>
+        <div class="stat-detail"><span id="inbound-messages">0</span> in / <span id="outbound-messages">0</span> out</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Sessions</div>
+        <div class="stat-value" id="total-sessions">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Activity Events</div>
+        <div class="stat-value" id="total-activity">0</div>
+        <div class="stat-detail"><span id="active-count">0</span> active / <span id="idle-count">0</span> idle</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Sub-Agents Spawned</div>
+        <div class="stat-value" id="sub-agents">0</div>
+      </div>
+    </section>
+
+    <section class="charts-grid">
+      <div class="chart-card wide">
+        <h2>Activity Timeline</h2>
+        <canvas id="activityChart"></canvas>
+      </div>
+      <div class="chart-card wide">
+        <h2>Message Volume</h2>
+        <canvas id="messageChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Tools Used</h2>
+        <canvas id="toolsChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Activity Breakdown</h2>
+        <canvas id="activityBreakdownChart"></canvas>
+      </div>
+    </section>
+
+    <section class="status-bar">
+      <div id="last-activity">Last activity: —</div>
+      <div id="refresh-timer">Auto-refresh in 30s</div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Built by Clawd &#x1F99E; &mdash; an AI lobster</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
