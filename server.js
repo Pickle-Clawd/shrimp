@@ -63,9 +63,9 @@ app.post('/api/stats/activity', (req, res) => {
 // POST /api/stats/messages
 app.post('/api/stats/messages', (req, res) => {
   const { count, session_id, direction, timestamp } = req.body;
-  console.log('MSG', timestamp, count);
+  const ts = timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19);
   const stmt = db.prepare('INSERT INTO messages (timestamp, count, session_id, direction) VALUES (?, ?, ?, ?)');
-  const result = stmt.run(timestamp || null, count || 1, session_id || null, direction || null);
+  const result = stmt.run(ts, count || 1, session_id || null, direction || null);
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -97,7 +97,8 @@ app.post('/api/stats/sessions', (req, res) => {
       tools_count = COALESCE(excluded.tools_count, sessions.tools_count),
       sub_agents_spawned = COALESCE(excluded.sub_agents_spawned, sessions.sub_agents_spawned)
   `);
-  const result = stmt.run(session_id, started_at || null, ended_at || null, messages_count || 0, tools_count || 0, sub_agents_spawned || 0);
+  const startTs = started_at || new Date().toISOString().replace('T', ' ').substring(0, 19);
+  const result = stmt.run(session_id, startTs, ended_at || null, messages_count || 0, tools_count || 0, sub_agents_spawned || 0);
   res.json({ id: result.lastInsertRowid });
 });
 
