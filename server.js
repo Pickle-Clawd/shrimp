@@ -63,9 +63,9 @@ app.post('/api/stats/activity', (req, res) => {
 // POST /api/stats/messages
 app.post('/api/stats/messages', (req, res) => {
   const { count, session_id, direction, timestamp } = req.body;
-  const ts = timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19);
+  console.log('MSG', timestamp, count);
   const stmt = db.prepare('INSERT INTO messages (timestamp, count, session_id, direction) VALUES (?, ?, ?, ?)');
-  const result = stmt.run(ts, count || 1, session_id || null, direction || null);
+  const result = stmt.run(timestamp || null, count || 1, session_id || null, direction || null);
   res.json({ id: result.lastInsertRowid });
 });
 
