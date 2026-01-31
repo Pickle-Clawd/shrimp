@@ -50,50 +50,51 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // POST /api/stats/activity
 app.post('/api/stats/activity', (req, res) => {
-  const { status, details } = req.body;
+  const { status, details, timestamp } = req.body;
   if (!status || !['active', 'idle'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be "active" or "idle".' });
   }
-  const stmt = db.prepare('INSERT INTO activity (status, details) VALUES (?, ?)');
-  const result = stmt.run(status, details || null);
+  const stmt = db.prepare('INSERT INTO activity (timestamp, status, details) VALUES (?, ?, ?)');
+  const result = stmt.run(timestamp || null, status, details || null);
   res.json({ id: result.lastInsertRowid });
 });
 
 // POST /api/stats/messages
 app.post('/api/stats/messages', (req, res) => {
-  const { count, session_id, direction } = req.body;
-  const stmt = db.prepare('INSERT INTO messages (count, session_id, direction) VALUES (?, ?, ?)');
-  const result = stmt.run(count || 1, session_id || null, direction || null);
+  const { count, session_id, direction, timestamp } = req.body;
+  const stmt = db.prepare('INSERT INTO messages (timestamp, count, session_id, direction) VALUES (?, ?, ?, ?)');
+  const result = stmt.run(timestamp || null, count || 1, session_id || null, direction || null);
   res.json({ id: result.lastInsertRowid });
 });
 
 // POST /api/stats/tools
 app.post('/api/stats/tools', (req, res) => {
-  const { tool_name, count } = req.body;
+  const { tool_name, count, timestamp } = req.body;
   if (!tool_name) {
     return res.status(400).json({ error: 'tool_name is required.' });
   }
-  const stmt = db.prepare('INSERT INTO tools (tool_name, count) VALUES (?, ?)');
-  const result = stmt.run(tool_name, count || 1);
+  const stmt = db.prepare('INSERT INTO tools (timestamp, tool_name, count) VALUES (?, ?, ?)');
+  const result = stmt.run(timestamp || null, tool_name, count || 1);
   res.json({ id: result.lastInsertRowid });
 });
 
 // POST /api/stats/sessions
 app.post('/api/stats/sessions', (req, res) => {
-  const { session_id, ended_at, messages_count, tools_count, sub_agents_spawned } = req.body;
+  const { session_id, started_at, ended_at, messages_count, tools_count, sub_agents_spawned } = req.body;
   if (!session_id) {
     return res.status(400).json({ error: 'session_id is required.' });
   }
   const stmt = db.prepare(`
-    INSERT INTO sessions (session_id, ended_at, messages_count, tools_count, sub_agents_spawned)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO sessions (session_id, started_at, ended_at, messages_count, tools_count, sub_agents_spawned)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
+      started_at = COALESCE(excluded.started_at, sessions.started_at),
       ended_at = COALESCE(excluded.ended_at, sessions.ended_at),
       messages_count = COALESCE(excluded.messages_count, sessions.messages_count),
       tools_count = COALESCE(excluded.tools_count, sessions.tools_count),
       sub_agents_spawned = COALESCE(excluded.sub_agents_spawned, sessions.sub_agents_spawned)
   `);
-  const result = stmt.run(session_id, ended_at || null, messages_count || 0, tools_count || 0, sub_agents_spawned || 0);
+  const result = stmt.run(session_id, started_at || null, ended_at || null, messages_count || 0, tools_count || 0, sub_agents_spawned || 0);
   res.json({ id: result.lastInsertRowid });
 });
 
